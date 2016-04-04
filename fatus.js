@@ -1,499 +1,212 @@
 /* global define,define,console */
 
-//require core string re
-define("core", [], function() {
-    if (!window._fate_magazine) {
-        window._fate_magazine = {
-            "ordinal": 0
-        };
+//常用函數
+var fatus = {};
+fatus.extend = function(dest, source) {
+    for(var key in source){
+        if(source.hasOwnProperty(key)){
+            dest[key]=source[key];
+        }        
     }
-    var core = {
-        "empty": function() {},
-        "count": function() {
-            return window._fate_magazine.ordinal++
-        }
-    };
-    return core;
-});
-define("lang",[],function(){
-	var lang={
-		//產生16為的16進制字符串
-		"uid":function(){
-			var str="";
-			for(var i=0;i<2;i++){
-				str+=Math.random().toString(16).substring(2);
-			}
-			return str;
-		}
-	};
-	return lang;
-});
+};
+var deleteItem=function(arr,item){
+    if(!arr || !Array.isArray(arr)){
+        return false;
+    }
+    var index=arr.indexOf(item);
+    arr.splice(index,1);
+}
+//無冗餘集合
+var nonRedundantArray = function() {
+    this._data = {};
+};
+nonRedundantArray.prototype = {
+    "push": function(module) {
+        this._data[module.name]=module;
+    },
+    "remove": function(moduleName) {
+        delete this._data[moduleName];
+    },
+    "has": function(moduleName) {
+        return !!this._data[moduleName];
+    },
 
-//可以依賴zepto或者jquery
-define("zeplugin", ["zepto", "UI"], function($, ui) {
-    var isZepto = $.zepto ? true : false;
+};
 
-    var proto = {
-        //中間鏈的element可能有滾動,所以不準確
-        //Handling table border offsets.
-        // Fixed positioned elements.
-        // Scroll offsets within another element.
-        // Borders of overflowed parent elements.
-        // Miscalculation of absolutely positioned elements.
-        clientRect: function() {
-            if (!this.eq(0)) {
-                return {};
-            }
-            var offset = this.eq(0).offset();
-            return {
-                top: offset.top - $.window.scrollTop(),
-                left: offset.left - $.window.scrollLeft()
-            };
-        },
-        isVisible: function() {
-            return window.getComputedStyle(this.get(0), '').getPropertyValue("display") == "none";
-        },
-        isAttached: function() {
-            if (!this.eq(0)) {
-                return false;
-            }
-            var ele = this.eq(0);
-            return ele.parentNode || ele.nodeType == 9;
+
+//生命週期
+var Module = function(name) {
+    this._state = "initializing";
+    this._depends = [];
+    this._requiredBy = null;
+    this._name=name;
+};
+Module.prototype = function() {
+
+};
+Module.ensureLoaded = function(callback) {
+
+};
+//全局變量
+var repositoryKap = {};     // 甲級倉庫
+var repositoryJut={};       // 乙級倉庫
+var shadows = new nonRedundantArray(); //這個變量名要改,存放狀態
+var misson=new nonRedundantArray();     //一組加載任務,有使用者簡歷
+var script_prefix = "fatus_script_";
+var baseUrl;
+// 初始化
+var scripts = document.getElementsByTagName("SCRIPT");
+for (var i = 0, len = scripts.length; i < len; i++) {
+    var item = scripts[i];
+    if (!item.dataset["main"]) {
+        continue;
+    }
+    baseUrl = item.dataset["main"];
+    break;
+    // 後面還要考慮沒有設置main屬性的情況
+}
+//支持多種參數
+var define = function(name, depends, moduleConstructor) {
+    if (arguments.length == 0) {
+        throw new Error("參數不正確");
+    }
+    if (arguments.length == 1) {
+        moduleConstructor = name;
+        if (typeof moduleConstructor != "function") {
+            return moduleConstructor;
         }
-    };
-    if (isZepto) {
-        $.extend($.fn, proto);
+    }
+    if (arguments.length == 2) {
+        moduleConstructor = depends;
+        depends = name;
+        name = "defaultName"; // 根據文件名生成模塊名
+    }
+    var constructorWrapper = function(dpds) { //構造,並且觸發事件
+        var module = moduleConstructor.apply(null, Array.prototype.slice.call(arguments)); //因爲上面傳入的參數是多個單個模塊,而非數組
+        module.depends = depends;
+        module.name = name;
+        if(repositoryJut[name]){
+            if(typeof module == "function"){
+                throw new Error("循環依賴，不支持function類型的模塊");
+            }
+            fatus.extend(repositoryJut[name],module);
+            repositoryKap[name]=repositoryJut[name];    //只能重新定向到乙庫，而不能刪除乙庫中的內容
+        }
+        repositoryKap[name] = module;
+        controller.trigger(name);
+        shadows.setComplete(name);
+    }
+    if (depends.length) {
+        require0(depends, constructorWrapper);
     } else {
-        $.fn.extend(proto);
+        constructorWrapper([]);
     }
-    //$.window對象
-    $.window = {
-        //這裏只支持取值,不支持設置,以後增加
-        scrollTop: function() {
-            return (window.pageYOffset !== undefined) ? window.pageYOffset : window.scrollY;
-        },
-        scrollLeft: function() {
-            return (window.pageXOffset !== undefined) ? window.pageXOffset : window.scrollX;
-        }
-    };
-    $.isInstance = function(obj) {
-        return isZepto ? obj instanceof $.zepto.Z : obj instanceof $;
-    };
-    return $;
-});
-
-//OOP
-define("OOP", [], function() {
-    //接口
-    // var  CanCallSuper=function(){
-    // };
-    // CanCallSuper.prototype.callSuper=function(method){       //method對應的必須是函數，不然會報錯
-    //  this.prototype[method].apply(this,arguments);       //函數執行過程中不能修改函數本身，不然這樣會污染prototype對象
-    // };
-    //兩種繼承的手段,必須保證父類構造函數,在不帶參數的情況下不能報錯,可以在實例化之前檢查父類的構造函數,以便準確定位問題
-    //第三種方式就是不封裝,直接用字面量來寫子函數,這種方式限制最少,但是代碼不能重用
-    //這個函數的限制，調用上層的函數，只能有一層，另外，上層構造函數必須執行
-
-    //這種繼承有一個缺陷：繼承操作之後，不能重新指定prototype，只能修改
-    function inherit(SperClass, SubClass) {
-        var name = SubClass.name;
-        var Generated_by_OOP = function() {
-            SperClass.apply(this, arguments);
-            SubClass.apply(this, arguments);
-        }
-        Generated_by_OOP.prototype = $.extend(Object.create(new SperClass), SubClass.prototype, {
-            "callSuper": function(method) { //method對應的必須是函數，不然會報錯
-                Generated_by_OOP.prototype[method].apply(this, arguments); //函數執行過程中不能修改函數本身，不然這樣會污染prototype對象
-            },
-            "constructor": SubClass
-        });
-        Generated_by_OOP.superClass = SperClass;
-        //defineProperty修改length和name,但是編程一般用匿名函數,用不到
-        return Generated_by_OOP;
+};
+var require = function(modules, callback) {
+    if (!Array.isArray(modules)) {
+        modules = [modules];
     }
-
-    /*    Function.prototype.fork = Function.prototype.derive = function(obj) {
-    		var that = this;
-    		var Clazz = function() {
-    			that.apply(this, arguments);
-    			obj && obj.constrct && obj.constrct.apply(this, arguments);
-    		};
-    		if (!obj) {
-    			return Clazz;
-    		}
-    		Clazz.prototype = Object.create(new that);
-    		Clazz.constructor = obj.constrct;
-    		//defineProperty修改length和name,但是編程一般用匿名函數,用不到
-    		var prototype = Clazz.prototype;
-    		for (var k in obj) {
-    			prototype[k] = obj[k];
-    		}
-    		return Clazz;
-    	};*/
-    return {
-        "inherit": inherit
-    }
-});
-
-//UI庫
-define("UI", ["core", "zeplugin", "OOP", "machine", "collection"], function(core, $, oop, machine, collection) {
-    var bindMachine2Element = function(map, guard, callback) {
-        this.machine.setMap(map);
-        var that = this;
-        this._ele.on("click", function(e) {
-            if (!guard.call(this, e)) {
-                return null;
-            }
-            e["machine"] = that.machine;
-            var result = that.machine.turn(e.target.id);
-            if (!result) {
-                return null;
-            }
-            e["result"] = result;
-            callback.call(this, e);
-        });
-    }
-    var UI = {};
-    //只能接受HTML Element或者jquery對象作爲參數，不帶參數時，不能報錯
-    var Component = function(ele) {
-        this._ele = ele && $(ele).eq(0);
-    };
-    Component.prototype = {
-        "isShowing": function() {
-            return this._ele.isVisible();
-        },
-        "getEle": function() {
-            return this._ele;
-        },
-        "isAttached": function() {
-            return this._ele.isAttached;
+    var ddkdk=window.setInterval(function(){
+        if(controller.areLoaded(modules)){
+            window.clearTimeout(dkdk);
+            window.clearInterval(ddkdk);
         }
-    };
-    var WidgetEvent = function(widget) {
-        this.obj = widget;
-    };
-    var Widget = function() {
-        //this
-    };
-    //事件機制用在show hide 等幾個環節上，就是AOP
-    Widget.prototype = {
-        "show": function() {
-            var e = new Event("before_show");
-            this._ele.trigger(e);
-            this._ele.hasClass("hidden") && this._ele.removeClass("hidden");
-            this._ele.show();
-            e = new Event("show");
-            this._ele.trigger(e);
-        },
-        "hide": function() {
-            var ele = this.getEle();
-            var e = new Event("before_hide");
-            ele.trigger(e);
-            ele.addClass("hidden");
-            ele.hide();
-            e = new Event("hide");
-            ele.trigger(e);
-        },
-        "isFirstShow": function() {
-
-        },
-        //兩種語法on(eventName, data, func);on(eventName, func);
-        //isBefore,需要的話，加在最後
-        "on": function(eventName, data, func, isBefore) {
-            var isDataExist = typeof data != "function";
-            if (!isDataExist) {
-                isBefore = func;
-                func = data;
-            }
-            eventName = isBefore ? "before_" + eventName : eventName;
-            if (isDataExist) {
-                return this._ele.on(eventName, data, func);
-            }
-            return this._ele.on(eventName, func);
-        },
-        //兩種語法off(event,handler);off(event);
-        //isBefore,需要的話，加在最後
-        "off": function(eventName, handler, isBefore) {
-            var isHandlerExist = typeof handler == "function";
-            if (!isDataExist) {
-                isBefore = handler;
-            }
-            eventName = isBefore ? "before_" + eventName : eventName;
-            if (isDataExist) {
-                return this._ele.off(eventName, func);
-            }
-            return this._ele.off(eventName);
-        },
-        //第一個參數是函數，後面是要傳給該函數的參數
-        //為了調用decorater時，能傳參數，就不能一次性調用多個decorater
-        //decorater跟事件機制搭配使用，前者可以改變API，後者不能
-        "decorate": function(name) {
-            var args = arguments.length > 1 ? Array.prototype.slice.call(arguments, 1) : null;
-
-            function _decorate1(ele, fn, argus) {
-                fn.apply(ele, argus);
-                ele.data("uiDecorated", ele.data("uiDecorated").trim() + " " + fn.constructor.decoraterID);
-            }
-            if (typeof name == "string") {
-                if (!UI.magazine.decoraters[name]) {
-                    throw new Error("there's no decorater named \"" + name + "\" in the magazine")
-                }
-                var temp = this._ele.data("fat_applied_decoraters");
-                if (!temp) {
-                    this._ele.data("fat_applied_decoraters", name);
-                } else {
-                    temp = temp.split(" ");
-                    if (collection.contains(temp, name)) {
-                        throw new Error("the decorater \"" + name + "\" have been applied to this widget before!");
-                    }
-                    this._ele.data("fat_applied_decoraters", collection.rosarify(temp));
-                }
-                UI.magazine.decoraters[name].apply(this, args);
-                return this;
-            }
-            for (var key in name) {
-                //这里没有记录装饰器的名字
-                typeof name[key] == "function" && name[key].apply(this, args);
-            }
-            return this;
-        }
-    };
-    Widget = oop.inherit(Component, Widget);
-    //組件創建三部曲：按照正常流暢定義子類和prototype，繼承，修改prototype
-    var Glass = function(ele) {
-        var glass = document.createElement("DIV");
-        glass.className = "ui-overlay ui-widget-glass hidden";
-        document.body.appendChild(glass);
-        this.id = core.count();
-        this._ele = $(glass);
-        var that = this;
-        this._ele.on("click", function() {
-            window._fate_magazine["glass_relative_widget"].hide();
-        });
-    };
-    Glass = oop.inherit(Widget, Glass);
-    Glass.prototype.className = "com.glass"; //這個屬性不能叫name，因為函數本身有一個name屬性，而且是只讀的
-
-
-    //單例都方式火藥庫，不用模擬靜態類，然後做工廠類
-    UI.magazine = {
-        "_globalInstancesOfComponent": {},
-        "getInstance": function(Clazz) {
-            var name = Clazz.prototype.className;
-            if (!this._globalInstancesOfComponent[name]) {
-                this._globalInstancesOfComponent[name] = new Clazz; //添加權限控制功能，只能在內部實例化
-            }
-            return this._globalInstancesOfComponent[name];
-        },
-        "decoraters": {
-            //用玻璃遮罩來顯示
-            "scene": function() {
-                //此處this指向widget
-                var that = this;
-                var Component = UI.Glass;
-                var glass = UI.magazine.getInstance(Component);
-                this.on("show", function() {
-                    //此處this指向html element，事件的綁定，組件轉發給jq對象，然後再轉發給html element
-                    window._fate_magazine["glass_relative_widget"]=that;
-                    that.getEle().parent().append(glass.getEle());
-                    glass._ele.css({
-                        "top": (that._ele.clientRect()["top"] + 10) + "px",
-                        "left": "0px"
-                    });
-                    glass.show();
-                }, false); //遮罩的位置，可能需要依靠顯示內容的樣式，所以設置在其後
-                this.on("hide", function() {
-                    glass.hide();
-                }, true);
-            },
-            //一元狀態機
-            "monisticMachine": function(map, guard, callback) {
-                this.machine = new machine.MonisticMachine();
-                bindMachine2Element.call(this, map, guard, callback);
-            },
-            //陰陽狀態機
-            "yinyangMachine": function(map, guard, callback) {
-                this.machine = new machine.YinyangMachine();
-                bindMachine2Element.call(this, map, guard, callback);
-            }
-        }
-
-    };
-    $.extend(UI, {
-        "Glass": Glass,
-        "Widget": Widget
+    },100);
+    var dkdk=window.setTimeout(function(){
+        misson.remove(dkdk);
+        throw new Error("超市");
+    },2*1000);
+    misson.push(dkdk);
+    require0(modules,callback,dkdk);
+};
+var require0=function(modules, callback,missonId){    //於上面的分開,避免混淆,框架試用裝的回調跟框架本身的回調,還有最外層的超市的控制
+    var hook = controller.sink(modules, callback,missonId);  //鉤子,兩個作用,所有模塊加載完畢,需要調用的回調,這組超市,需要
+    modules.forEach(function(item, index, modls) {
+        requireSingle(item, hook);
     });
-    return UI;
-});
-
-
-//貨幣模塊
-define("Be", [], function() {
-
-    function parseBun(be) {
-        var result;
-
-        if (!isNaN(be)) {
-            result = be;
-        } else if (be instanceof Be) {
-            result = be._val;
-        } else {
-            result = (+be.toString());
+};
+var requireSingle = function(moduleName, hook) {
+    controller.bind(moduleName, hook);
+    // 處於等待狀態的模塊,也觸發這個事件,並不會影響上一層
+    if (controller.isLoaded(moduleName) || controller.isWaiting(moduleName)) {
+        controller.trigger(moduleName);
+        return null;
+    }
+    shadows.push(new Module("moduleName"));
+    // 找到路徑，加載路徑，輪詢找變量，超時
+    var url = baseUrl + moduleName + ".js";
+    var script_e = document.createElement("SCRIPT");
+    script_e.type = "text/javascript";
+    script_e.id = script_prefix + moduleName;
+    script_e.src = url;
+    document.body.appendChild(script_e);
+    // 綁定回調函數之後,什麼都不用管了,後面的處理,都交給controller
+};
+var bbc = 567;
+var controller = {
+    "_eventBus": {}, // 單個模塊加載完成後的事件
+    "_callbackWrappers": {}, // 一組模塊加載完成後的事件
+    "bind": function(moduleName, hook) {
+        if (!this._eventBus[moduleName]) {
+            this._eventBus[moduleName] = [];
         }
-        result = parseInt(result);
-        return result == result ? result : 0;
-    };
-    //货币类
-    var Be = function(num) {
-        this._val = num ? +num : 0;
-        this.valueOf = function() { //是否应该挂载在prototype上
-            return this._val;
-        };
-    };
-    Be.prototype = {
-        //取元的部分
-        getGon: function() {
-            return this._val / 100;
-        },
-        //取分的部分
-        getBun: function() {
-            return this._val % 100;
-        },
-        //总共多少分
-        asBun: function() {
-            return this._val;
-        },
-        //减法
-        substract: function(be) {
-            return be == null ? this : this._val -= parseBun(be) && this;
-        },
-        //加法
-        add: function(be) {
-            return be == null ? this : this._val += parseBun(be) && this;
-        }
-    };
-    //静态方法,计算结果,不影响两个参数的值
-    Be.add = function(augend, addend) {
-        return new Be(augend + addend);
-    };
-    Be.substract = function(minuend, subtrahend) {
-        return new Be(minuend - subtrahend);
-    };
-    return Be;
-});
+        this._eventBus[moduleName].push(hook); // 只綁定鉤子,不直接綁定函數
+    },
+    "trigger": function(moduleName) {
+        var hook = this._eventBus[moduleName].pop();
+        this._callbackWrappers[hook]();
 
-//集合操作
-define("collection", [], function() {
-    var collection = {
-        "invert": function(obj) {
-            var result = {};
-            for (var key in obj) {
-                if (!obj.hasOwnProperty(key)) { //hasOwnProperty應該封裝成另外一個
-                    continue;
+    },
+    "isLoaded": function(name) {
+        return !!repositoryKap[name];
+    },
+    "areLoaded": function(names) {
+        for(var i =0,len=names.length;i<len;i++){
+            var item=names[i];
+            if(!this.isLoaded(item)){
+                return false;
+            }
+        }
+        return true;
+    },
+    "isWaiting": function(name) {
+        return shadows.getState(name)=="waiting";
+    },
+    "sink": function(modls, callback,missonId) {
+        var uid = bbc++; //String(modls)也可以作爲uid
+        var that = this;
+        var callbackWrapper = function(item) {
+            if(!misson.has(missonId)){  //已經超時,不做處理..................................兩個任務,一個超市,一個不超市,要互不影響
+                return null;
+            }
+            var shouldCallback = true;
+            modls.forEach(function(moduleName, index) {
+                var isWaiting = that.isWaiting(moduleName);
+                var isRequiredByUpstream = that._eventBus[moduleName].length > 1;
+                if(isWaiting && isRequiredByUpstream){
+                    //throw new Error("循環依賴");
+                    repositoryJut[moduleName]={};
                 }
-                result[obj[key]] = key;
+                if (!(controller.isLoaded(moduleName) /*|| (isWaiting && isRequiredByUpstream)*/)) {
+                    shouldCallback = false;
+                    return false;
+                }
+            });
+            if (shouldCallback) {
+                callback.apply(null, modls.map(function(item, index) {
+                    return repositoryKap[item]?repositoryKap[item]:repositoryJut[item];
+                }));
+                that._callbackWrappers[uid] = undefined;
             }
-            return result;
-        },
-        "rosarify": function(arr) {
-            var result = "";
-            arr.forEach(function(item, index, arr) {
-                result += " " + item;
-            })
-            return result.trim();
-        },
-        "contains": function(arr, item) {
-            return arr.indexOf(item) > -1;
-        }
-    };
-    return collection;
-});
+        };
+        this._callbackWrappers[uid] = callbackWrapper;
+        return uid;
+    },
+    "delete": function(hook) {
+        this._callbackWrappers[hook] = undefined;
+    }
+}
+var load = function(name) {
 
 
-//有限狀態機
-//狀態的轉換,可能是阻塞式的,這種情況下,狀態機必須提供事件機制
-define("machine", ["collection"], function(collection) {
-
-    //一元狀態機
-    var MonisticMachine = function(map) {
-        this._vsmap = map; //view state mapping
-        this._isOperating = false;
-    };
-    MonisticMachine.prototype = {
-        "setMap": function(map) {
-            this._vsmap = map;
-        },
-        "turn": function(view) { //switch是保留字
-            if (this._isOperating || !this.canTurn(view)) {
-                return false;
-            }
-            this._isOperating = true;
-            var last = this._state;
-            this._state = this._getState(view);
-            return (this._isOperating = false) || {
-                "current": view,
-                "last": this._getId(last) //這個值可能是undefined的,需要特殊處理
-            };
-        },
-        "_getState": function(view) {
-            return this._vsmap[view];
-        },
-        "_getId": function(state) {
-            return collection.invert(this._vsmap)[state];
-        },
-        "getState": function() { //有必要的話,可以加一個lastState
-            return this._state;
-        },
-        "canTurn": function(view) {
-            var newState = this._getState(view);
-            if (newState == this._state) {
-                return false;
-            }
-            return true;
-        }
-    };
-    //陰陽狀態機
-    var YinyangMachine = function(map) {
-        this._vsmap = map; //view state mapping
-        this._isOperating = false;
-    };
-    YinyangMachine.prototype = {
-        "setMap": function(map) {
-            this._vsmap = map;
-        },
-        "turn": function(view) { //switch是保留字
-            if (this._isOperating || !this.canTurn(view)) {
-                return false;
-            }
-            this._isOperating = true;
-            var last = this._state;
-            this._state = this._getState(view);
-            return (this._isOperating = false) || {
-                "current": this._getId(this._state),
-                "last": this._getId(last) //這個值可能是undefined的,需要特殊處理
-            };
-        },
-        "_getState": function(view) {
-            return this._vsmap[view] == this._state ? 0 : this._vsmap[view];
-        },
-        "_getId": function(state) {
-            return collection.invert(this._vsmap)[state];
-        },
-        "getState": function() { //有必要的話,可以加一個lastState
-            return this._state;
-        },
-        "canTurn": function(view) {
-            var newState = this._getState(view);
-            if (!newState && newState != 0) {
-                return false;
-            }
-            return true;
-        }
-    };
-    //多元狀態機
-    var machines = {
-        "MonisticMachine": MonisticMachine,
-        "YinyangMachine": YinyangMachine
-    };
-    return machines;
-});
+}
